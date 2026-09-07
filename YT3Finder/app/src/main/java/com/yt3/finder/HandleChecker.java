@@ -15,10 +15,11 @@ public final class HandleChecker {
         try{return URLEncoder.encode(s,StandardCharsets.UTF_8).replace("+","%20");}catch(Exception e){return s;}
     }
 
-    private static String readAll(InputStream in)throws IOException{
+    private static String readLimited(InputStream in,int max)throws IOException{
+        if(in==null)return "";
         BufferedReader br=new BufferedReader(new InputStreamReader(in,StandardCharsets.UTF_8));
         StringBuilder sb=new StringBuilder();char[] buf=new char[8192];int n,total=0;
-        while((n=br.read(buf))>0&&total<1000000){sb.append(buf,0,n);total+=n;}
+        while((n=br.read(buf))>0&&total<max){int take=Math.min(n,max-total);sb.append(buf,0,take);total+=take;}
         return sb.toString();
     }
 
@@ -34,50 +35,50 @@ public final class HandleChecker {
                (low.contains("ytinitialdata")&&low.contains("metadata")&&(low.contains("subscriber")||low.contains("videos")));
     }
 
-    public static Verdict checkUrl(String url,String handle){
+    private static Verdict request(String url,String handle,int connectMs,int readMs,int maxBody){
         HttpURLConnection c=null;
         try{
             c=(HttpURLConnection)new URL(url).openConnection();
-            c.setInstanceFollowRedirects(true);
-            c.setConnectTimeout(9000);c.setReadTimeout(12000);
+            c.setInstanceFollowRedirects(true);c.setConnectTimeout(connectMs);c.setReadTimeout(readMs);
             c.setRequestProperty("User-Agent","Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36");
-            c.setRequestProperty("Accept","text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            c.setRequestProperty("Accept","text/html,application/xhtml+xml,*/*;q=0.8");
             c.setRequestProperty("Accept-Language","en-US,en;q=0.9");
-            c.setRequestProperty("Cache-Control","no-cache, no-store, max-age=0");
-            c.setRequestProperty("Pragma","no-cache");
+            c.setRequestProperty("Cache-Control","no-cache");
             int code=c.getResponseCode();
             if(code==403||code==408||code==409||code==425||code==429||code>=500)return Verdict.UNKNOWN;
             InputStream in=(code>=400?c.getErrorStream():c.getInputStream());
-            String body=in==null?"":readAll(in),low=body.toLowerCase();
+            String body=readLimited(in,maxBody),low=body.toLowerCase();
             String finalUrl=c.getURL().toString().toLowerCase(),marker="/@"+handle.toLowerCase();
             if(finalUrl.contains("/channel/uc"))return Verdict.OCCUPIED;
             if(occupiedBody(low,handle))return Verdict.OCCUPIED;
-            if(code==200&&finalUrl.contains(marker)&&body.length()>5000&&(low.contains("ytcfg")||low.contains("ytinitialdata")))return Verdict.OCCUPIED;
+            if(code==200&&finalUrl.contains(marker)&&body.length()>3000&&(low.contains("ytcfg")||low.contains("ytinitialdata")))return Verdict.OCCUPIED;
             if(code==404||low.contains("this page isn't available")||low.contains("this page is not available")||low.contains("page unavailable")||low.contains("channel does not exist"))return Verdict.NOT_FOUND;
             return Verdict.UNKNOWN;
         }catch(Exception e){return Verdict.UNKNOWN;}finally{if(c!=null)c.disconnect();}
     }
+
+    public static Verdict checkUrl(String url,String handle){return request(url,handle,9000,12000,1000000);}
 
     private static Verdict checkPath(String host,String handle,String suffix,long nonce){
         String join=suffix.contains("?")?"&":"?";
         return checkUrl(host+"/@"+enc(handle)+suffix+join+"_yt3="+nonce,handle);
     }
 
-    /**
-     * Fast exact-channel prefilter. It is used only to throw away handles that
-     * YouTube already clearly resolves to a real channel. NOT_FOUND/UNKNOWN are
-     * never treated as free here; they merely proceed to the deep verifier.
-     */
+    /** Phase 1: ONE lightweight YouTube request only. OCCUPIED is safe to discard.
+     * NOT_FOUND and UNKNOWN both survive and go to the ultra-strict phase. */
+    public static Verdict fastPrefilter(String handle){
+        String url="https://www.youtube.com/@"+enc(handle)+"?_yt3fast="+System.nanoTime();
+        return request(url,handle,3500,4500,220000);
+    }
+
+    /** Kept for manual checks / candidate cleanup. */
     public static boolean definitelyOccupiedFast(String handle){
+        if(fastPrefilter(handle)==Verdict.OCCUPIED)return true;
         long n=System.nanoTime();
-        Verdict[] v=new Verdict[]{
-            checkPath("https://www.youtube.com",handle,"",n),
-            checkPath("https://m.youtube.com",handle,"",n+1),
-            checkPath("https://www.youtube.com",handle,"/about",n+2),
-            checkPath("https://www.youtube.com",handle,"/videos",n+3)
-        };
-        for(Verdict x:v)if(x==Verdict.OCCUPIED)return true;
-        return false;
+        Verdict a=checkPath("https://m.youtube.com",handle,"",n);
+        if(a==Verdict.OCCUPIED)return true;
+        Verdict b=checkPath("https://www.youtube.com",handle,"/about",n+1);
+        return b==Verdict.OCCUPIED;
     }
 
     private static Verdict[] round(String handle,long nonce){
@@ -103,17 +104,14 @@ public final class HandleChecker {
             int[] s=summarize(round(handle,System.nanoTime()+r*100));
             if(s[0]>0)return new StrictResult("occupied");
             if(s[2]>0||s[1]<8)return new StrictResult("unknown");
-            if(r<rounds-1){try{Thread.sleep(900L+r*350L);}catch(Exception ignored){}}
+            if(r<rounds-1){try{Thread.sleep(700L+r*250L);}catch(Exception ignored){}}
         }
         return new StrictResult("yellow");
     }
 
     public static boolean selfTest(){
         String[] known={"MrBeast","YouTube","Google","777","aaa","l1l"};
-        for(String h:known){
-            int[] s=summarize(round(h,System.nanoTime()));
-            if(s[0]<1)return false;
-        }
+        for(String h:known){int[] s=summarize(round(h,System.nanoTime()));if(s[0]<1)return false;}
         return true;
     }
 }
