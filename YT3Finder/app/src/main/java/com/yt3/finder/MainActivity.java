@@ -14,7 +14,7 @@ import java.util.*;
 
 public class MainActivity extends Activity {
     private SharedPreferences prefs;
-    private TextView stats,status,countText,manualResult;
+    private TextView stats,status,countText,manualResult,filteredText;
     private LinearLayout candidateList;
     private Button start,pause,reset,copyAll,manualCheck;
     private EditText manualInput;
@@ -36,7 +36,7 @@ public class MainActivity extends Activity {
         ScrollView sc=new ScrollView(this);sc.addView(root);setContentView(sc);
 
         TextView title=text("YT3 Finder",30,Color.WHITE);title.setTypeface(null,1);title.setPadding(dp(16),dp(20),dp(16),dp(4));root.addView(title);
-        root.addView(text("Только латинские трёхзнаки · усиленная многоэтапная проверка",14,Color.rgb(145,154,174)));
+        root.addView(text("Сначала удаляет всё, что уже находится в YouTube, потом проверяет остаток",14,Color.rgb(145,154,174)));
 
         LinearLayout manual=card();
         manual.addView(text("Проверить конкретный хэндл",20,Color.WHITE));
@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
         LinearLayout stat=card();
         stat.addView(text("Фоновый поиск",20,Color.WHITE));
         stats=text("0 / 51 840",28,Color.WHITE);stats.setTypeface(null,1);stat.addView(stats);
+        filteredText=text("YouTube сразу отсеял: 0",15,Color.rgb(111,168,255));stat.addView(filteredText);
         status=text("Готово к поиску.",14,Color.rgb(145,154,174));stat.addView(status);
         LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);
         start=btn("▶ Начать / продолжить");pause=btn("Пауза");reset=btn("Сброс");
@@ -60,52 +61,35 @@ public class MainActivity extends Activity {
         candidateList=new LinearLayout(this);candidateList.setOrientation(LinearLayout.VERTICAL);found.addView(candidateList);root.addView(found);
 
         LinearLayout info=card();
-        info.addView(text("Массовый поиск теперь трёхступенчатый: сначала быстрый строгий отсев, затем два полных глубоких прогона. Кандидат должен пережить все этапы без единого признака существующего канала, лимита или неоднозначного ответа. Удалённые как занятые хэндлы попадают в постоянный чёрный список и больше не появятся. Ручная проверка использует два полных глубоких прогона подряд. Даже такой кандидат не является 100% гарантией назначения — финальное решение принимает YouTube при сохранении handle.",13,Color.rgb(215,220,230)));
+        info.addView(text("Новая схема: перед любой тяжёлой проверкой приложение сначала смотрит точный @handle на нескольких страницах YouTube. Если YouTube явно открывает существующий канал, такой ID сразу удаляется из дальнейшего поиска и заносится в чёрный список. Только то, что этот фильтр не подтвердил как занятое, идёт на многоэтапную глубокую проверку. Ошибка сети или непонятный ответ никогда не считается свободным. Финальную возможность назначить handle всё равно подтверждает только сам YouTube.",13,Color.rgb(215,220,230)));
         root.addView(info);
 
         manualCheck.setOnClickListener(v->runManualCheck());
         start.setOnClickListener(v->startScan());pause.setOnClickListener(v->sendAction(ScanService.ACTION_PAUSE));
         reset.setOnClickListener(v->{sendAction(ScanService.ACTION_RESET);handler.postDelayed(this::refresh,400);});
-        copyAll.setOnClickListener(v->copyAll());
-        handler.post(refreshLoop);
+        copyAll.setOnClickListener(v->copyAll());handler.post(refreshLoop);
     }
 
-    private String normalize(String s){
-        s=s==null?"":s.trim().toLowerCase(Locale.ROOT);
-        if(s.startsWith("@"))s=s.substring(1);
-        return s;
-    }
-    private boolean validThree(String h){
-        if(h.length()!=3)return false;
-        String edge="abcdefghijklmnopqrstuvwxyz0123456789";
-        String mid=edge+"_-.·";
-        return edge.indexOf(h.charAt(0))>=0&&mid.indexOf(h.charAt(1))>=0&&edge.indexOf(h.charAt(2))>=0;
-    }
+    private String normalize(String s){s=s==null?"":s.trim().toLowerCase(Locale.ROOT);if(s.startsWith("@"))s=s.substring(1);return s;}
+    private boolean validThree(String h){String edge="abcdefghijklmnopqrstuvwxyz0123456789",mid=edge+"_-.·";return h.length()==3&&edge.indexOf(h.charAt(0))>=0&&mid.indexOf(h.charAt(1))>=0&&edge.indexOf(h.charAt(2))>=0;}
 
     private void runManualCheck(){
         String h=normalize(manualInput.getText().toString());
-        if(!validThree(h)){
-            manualResult.setText("Неверный формат. Нужно ровно 3 символа: a-z, 0-9; _ - . · допустимы только посередине.");
-            manualResult.setTextColor(Color.rgb(255,100,110));return;
-        }
-        manualCheck.setEnabled(false);manualResult.setText("Идёт глубокая проверка @"+h+"…");manualResult.setTextColor(Color.rgb(111,168,255));
+        if(!validThree(h)){manualResult.setText("Неверный формат. Нужно ровно 3 символа: a-z, 0-9; _ - . · только посередине.");manualResult.setTextColor(Color.rgb(255,100,110));return;}
+        manualCheck.setEnabled(false);manualResult.setText("Сначала ищу @"+h+" в YouTube, затем запускаю глубокую проверку…");manualResult.setTextColor(Color.rgb(111,168,255));
         new Thread(()->{
-            HandleChecker.StrictResult a=HandleChecker.strictCheck(h,true);
-            String result=a.status;
-            if("yellow".equals(result)){
-                try{Thread.sleep(1200);}catch(Exception ignored){}
-                result=HandleChecker.strictCheck(h,true).status;
+            String result;
+            if(HandleChecker.definitelyOccupiedFast(h))result="occupied";
+            else{
+                HandleChecker.StrictResult a=HandleChecker.strictCheck(h,true);result=a.status;
+                if("yellow".equals(result)){try{Thread.sleep(1200);}catch(Exception ignored){}result=HandleChecker.strictCheck(h,true).status;}
             }
             final String r=result;
             runOnUiThread(()->{
                 manualCheck.setEnabled(true);
-                if("occupied".equals(r)){
-                    manualResult.setText("🔴 @"+h+" — ЗАНЯТ: найден существующий канал.");manualResult.setTextColor(Color.rgb(255,80,95));
-                }else if("yellow".equals(r)){
-                    manualResult.setText("🟡 @"+h+" — сверхстрогий кандидат. Публичные проверки не нашли канал, но окончательно назначение подтверждает только YouTube.");manualResult.setTextColor(Color.rgb(244,200,74));
-                }else{
-                    manualResult.setText("⚪ @"+h+" — НЕ УДАЛОСЬ ПОДТВЕРДИТЬ. Был лимит, ошибка или неоднозначный ответ. Свободным не считаю.");manualResult.setTextColor(Color.rgb(180,190,205));
-                }
+                if("occupied".equals(r)){manualResult.setText("🔴 @"+h+" — ЗАНЯТ: YouTube явно нашёл существующий канал.");manualResult.setTextColor(Color.rgb(255,80,95));}
+                else if("yellow".equals(r)){manualResult.setText("🟡 @"+h+" — сверхстрогий кандидат. Канал публично не найден, но назначение подтверждает YouTube.");manualResult.setTextColor(Color.rgb(244,200,74));}
+                else{manualResult.setText("⚪ @"+h+" — НЕ УДАЛОСЬ ПОДТВЕРДИТЬ. Ошибка/лимит/неоднозначность; свободным не считаю.");manualResult.setTextColor(Color.rgb(180,190,205));}
             });
         }).start();
     }
@@ -115,11 +99,11 @@ public class MainActivity extends Activity {
     private final Runnable refreshLoop=new Runnable(){public void run(){refresh();handler.postDelayed(this,800);}};
 
     private void refresh(){
-        int index=prefs.getInt("index",0),total=prefs.getInt("total",51840),count=prefs.getInt("candidate_count",0);
+        int index=prefs.getInt("index",0),total=prefs.getInt("total",51840),count=prefs.getInt("candidate_count",0),removed=prefs.getInt("prefilter_removed",0);
         boolean running=prefs.getBoolean("running",false);
-        stats.setText(index+" / "+total);countText.setText("Кандидаты: "+count);
+        stats.setText(index+" / "+total);countText.setText("Кандидаты: "+count);filteredText.setText("YouTube сразу отсеял: "+removed);
         start.setEnabled(!running);pause.setEnabled(running);copyAll.setEnabled(count>0);
-        status.setText(running?"Поиск продолжает работать в фоне…":prefs.getString("error",index>0?"Пауза. Можно продолжить.":"Готово к поиску."));
+        status.setText(running?"Сначала отсеиваю найденные в YouTube, оставшиеся проверяю глубже…":prefs.getString("error",index>0?"Пауза. Можно продолжить.":"Готово к поиску."));
         loadCandidates();
     }
 
@@ -130,20 +114,17 @@ public class MainActivity extends Activity {
             LinearLayout outer=new LinearLayout(this);outer.setOrientation(LinearLayout.VERTICAL);outer.setPadding(dp(6),dp(6),dp(6),dp(6));
             TextView v=text("@"+h+"   🟡 сверхстрогий кандидат",17,Color.WHITE);v.setBackgroundColor(Color.rgb(59,49,19));outer.addView(v,new LinearLayout.LayoutParams(-1,-2));
             LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);
-            Button cp=btn("Копировать");Button yt=btn("YouTube");Button del=btn("Занят ✕");
+            Button cp=btn("Копировать"),yt=btn("YouTube"),del=btn("Занят ✕");
             cp.setOnClickListener(x->copy(h));yt.setOnClickListener(x->{copy(h);openYouTube(h);});del.setOnClickListener(x->deleteCandidate(h));
-            row.addView(cp,new LinearLayout.LayoutParams(0,-2,1));row.addView(yt,new LinearLayout.LayoutParams(0,-2,1));row.addView(del,new LinearLayout.LayoutParams(0,-2,1));outer.addView(row);
-            candidateList.addView(outer);
+            row.addView(cp,new LinearLayout.LayoutParams(0,-2,1));row.addView(yt,new LinearLayout.LayoutParams(0,-2,1));row.addView(del,new LinearLayout.LayoutParams(0,-2,1));outer.addView(row);candidateList.addView(outer);
         }
     }
 
     private void deleteCandidate(String h){
-        String key=h.toLowerCase(Locale.ROOT);
-        Set<String> blacklist=new HashSet<>(prefs.getStringSet("blacklist",Collections.emptySet()));blacklist.add(key);
+        String key=h.toLowerCase(Locale.ROOT);Set<String> blacklist=new HashSet<>(prefs.getStringSet("blacklist",Collections.emptySet()));blacklist.add(key);
         List<String> all=readLines("candidates.tsv",100000);ArrayList<String> keep=new ArrayList<>();for(String x:all)if(!x.equalsIgnoreCase(h))keep.add(x);
         try(FileOutputStream fos=openFileOutput("candidates.tsv",MODE_PRIVATE)){for(String x:keep)fos.write((x+"\n").getBytes(StandardCharsets.UTF_8));}catch(Exception ignored){}
-        prefs.edit().putStringSet("blacklist",blacklist).putInt("candidate_count",keep.size()).apply();
-        Toast.makeText(this,"@"+h+" удалён и добавлен в чёрный список",Toast.LENGTH_SHORT).show();refresh();
+        prefs.edit().putStringSet("blacklist",blacklist).putInt("candidate_count",keep.size()).apply();Toast.makeText(this,"@"+h+" удалён",Toast.LENGTH_SHORT).show();refresh();
     }
 
     private List<String> readLines(String file,int max){ArrayList<String> all=new ArrayList<>();try(BufferedReader br=new BufferedReader(new InputStreamReader(openFileInput(file),StandardCharsets.UTF_8))){String s;while((s=br.readLine())!=null)if(!s.isBlank())all.add(s);}catch(Exception ignored){}if(all.size()>max)return new ArrayList<>(all.subList(all.size()-max,all.size()));return all;}
