@@ -20,6 +20,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Download TDLib Android AAR
+        run: |
+          mkdir -p tgfinder/app/libs
+          curl -fL --retry 3 -o tgfinder/app/libs/core-release.aar https://github.com/AkashPriyadarshii/tdlib-android/releases/download/v0.1.0/core-release.aar
+          echo "5a5ad7fa346a29f3f09a31eaf4a742dbab864f25dc74f5373f7d2708e2a27638  tgfinder/app/libs/core-release.aar" | sha256sum -c -
       - name: Build debug APK
         working-directory: tgfinder
         run: gradle --no-daemon assembleDebug
