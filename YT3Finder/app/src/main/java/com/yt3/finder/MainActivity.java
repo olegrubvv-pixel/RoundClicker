@@ -38,7 +38,9 @@ public class MainActivity extends Activity {
 
         LinearLayout testCard=card();testCard.addView(text("Проверка исправности",20,Color.WHITE));
         selfStatus=text("Не проверено",14,Color.rgb(244,200,74));testCard.addView(selfStatus);
-        selftest=btn("Проверить @MrBeast · @YouTube · @Google");testCard.addView(selftest);root.addView(testCard);
+        selftest=btn("Проверить 6 известных занятых хэндлов");testCard.addView(selftest);
+        testCard.addView(text("Тест: @MrBeast · @YouTube · @Google · @777 · @aaa · @l1l",12,Color.rgb(145,154,174)));
+        root.addView(testCard);
 
         LinearLayout modeCard=card();modeCard.addView(text("Режим поиска",20,Color.WHITE));
         basic=btn("Все 3 знака · латиница + цифры + разделители");intl=btn("Красивые · все языки вперемешку");
@@ -50,19 +52,19 @@ public class MainActivity extends Activity {
         start=btn("▶ Начать");pause=btn("Пауза");Button reset=btn("Сброс");
         actions.addView(start,new LinearLayout.LayoutParams(0,-2,1));actions.addView(pause,new LinearLayout.LayoutParams(0,-2,1));actions.addView(reset,new LinearLayout.LayoutParams(0,-2,1));statCard.addView(actions);root.addView(statCard);
 
-        LinearLayout resCard=card();LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);resultsTitle=text("Кандидаты",20,Color.WHITE);top.addView(resultsTitle,new LinearLayout.LayoutParams(0,-2,1));Button copyGreen=btn("Копировать 🟢");top.addView(copyGreen);resCard.addView(top);resultList=new LinearLayout(this);resultList.setOrientation(LinearLayout.VERTICAL);resCard.addView(resultList);root.addView(resCard);
+        LinearLayout resCard=card();LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);resultsTitle=text("Кандидаты",20,Color.WHITE);top.addView(resultsTitle,new LinearLayout.LayoutParams(0,-2,1));Button copyYellow=btn("Копировать 🟡");top.addView(copyYellow);resCard.addView(top);resultList=new LinearLayout(this);resultList.setOrientation(LinearLayout.VERTICAL);resCard.addView(resultList);root.addView(resCard);
 
-        LinearLayout info=card();info.addView(text("🟢 Зелёный — все внешние проверки дали отсутствие канала. 🟡 Жёлтый — есть свободный сигнал, но хотя бы одна проверка неопределённа. Ошибка сети никогда не становится зелёной. Окончательное присвоение всё равно подтверждает только YouTube при сохранении handle.",13,Color.rgb(215,220,230)));root.addView(info);
+        LinearLayout info=card();info.addView(text("🟡 Жёлтый — строгие публичные проверки не нашли существующий канал, но это НЕ гарантия, что YouTube разрешит присвоить хэндл. 🟢 Зелёный теперь не выдаётся автоматически: публичный 404 больше не считается доказательством свободы. Ошибка сети также никогда не становится кандидатом. Долгое нажатие на карточку открывает её в YouTube для финальной проверки.",13,Color.rgb(215,220,230)));root.addView(info);
 
         selftest.setOnClickListener(v->runSelfTest());basic.setOnClickListener(v->{selectedMode=ScanService.MODE_BASIC;paintModes();});intl.setOnClickListener(v->{selectedMode=ScanService.MODE_INTL;paintModes();});
-        start.setOnClickListener(v->startScan());pause.setOnClickListener(v->sendAction(ScanService.ACTION_PAUSE));reset.setOnClickListener(v->{sendAction(ScanService.ACTION_RESET);handler.postDelayed(this::refresh,300);});copyGreen.setOnClickListener(v->copyFile("green.tsv"));
+        start.setOnClickListener(v->startScan());pause.setOnClickListener(v->sendAction(ScanService.ACTION_PAUSE));reset.setOnClickListener(v->{sendAction(ScanService.ACTION_RESET);handler.postDelayed(this::refresh,300);});copyYellow.setOnClickListener(v->copyFile("yellow.tsv"));
         selectedMode=prefs.getString("mode",ScanService.MODE_BASIC);paintModes();runSelfTest();handler.post(refreshLoop);
     }
 
     private void paintModes(){basic.setEnabled(!ScanService.MODE_BASIC.equals(selectedMode));intl.setEnabled(!ScanService.MODE_INTL.equals(selectedMode));}
     private void runSelfTest(){
-        selftest.setEnabled(false);selfStatus.setText("Проверяю известные занятые хэндлы…");selfStatus.setTextColor(Color.rgb(111,168,255));
-        new Thread(()->{boolean ok=HandleChecker.selfTest();prefs.edit().putBoolean("selftest",ok).apply();runOnUiThread(()->{selftest.setEnabled(true);if(ok){selfStatus.setText("✓ Исправно: тестовые хэндлы определены как занятые");selfStatus.setTextColor(Color.rgb(53,217,135));}else{selfStatus.setText("✕ Самотест не пройден. Поиск заблокирован.");selfStatus.setTextColor(Color.rgb(255,59,85));}refresh();});}).start();
+        selftest.setEnabled(false);selfStatus.setText("Проверяю 6 известных занятых хэндлов…");selfStatus.setTextColor(Color.rgb(111,168,255));
+        new Thread(()->{boolean ok=HandleChecker.selfTest();prefs.edit().putBoolean("selftest",ok).apply();runOnUiThread(()->{selftest.setEnabled(true);if(ok){selfStatus.setText("✓ Исправно: все 6 определены как занятые");selfStatus.setTextColor(Color.rgb(53,217,135));}else{selfStatus.setText("✕ Самотест не пройден. Поиск заблокирован.");selfStatus.setTextColor(Color.rgb(255,59,85));}refresh();});}).start();
     }
     private void startScan(){
         if(!prefs.getBoolean("selftest",false)){Toast.makeText(this,"Сначала должен пройти самотест",Toast.LENGTH_SHORT).show();return;}
@@ -85,11 +87,11 @@ public class MainActivity extends Activity {
         for(String h:readLines("green.tsv",60))rows.add(new String[]{h,"green"});
         for(String h:readLines("yellow.tsv",60))rows.add(new String[]{h,"yellow"});
         Collections.reverse(rows);
-        int shown=0;for(String[] r:rows){if(shown++>=100)break;TextView v=text("@"+r[0]+("green".equals(r[1])?"    🟢 строгий":"    🟡 не факт"),18,Color.WHITE);v.setPadding(dp(12),dp(12),dp(12),dp(12));v.setBackgroundColor("green".equals(r[1])?Color.rgb(18,57,33):Color.rgb(59,49,19));v.setOnClickListener(x->copy(r[0]));v.setOnLongClickListener(x->{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://www.youtube.com/@"+Uri.encode(r[0]))));return true;});resultList.addView(v,new LinearLayout.LayoutParams(-1,-2));}
+        int shown=0;for(String[] r:rows){if(shown++>=100)break;TextView v=text("@"+r[0]+("green".equals(r[1])?"    🟢 подтверждён":"    🟡 строгий кандидат"),18,Color.WHITE);v.setPadding(dp(12),dp(12),dp(12),dp(12));v.setBackgroundColor("green".equals(r[1])?Color.rgb(18,57,33):Color.rgb(59,49,19));v.setOnClickListener(x->copy(r[0]));v.setOnLongClickListener(x->{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://www.youtube.com/@"+Uri.encode(r[0]))));return true;});resultList.addView(v,new LinearLayout.LayoutParams(-1,-2));}
         if(rows.isEmpty())resultList.addView(text("Пока кандидатов нет.",14,Color.rgb(145,154,174)));
     }
     private List<String> readLines(String file,int max){ArrayList<String> all=new ArrayList<>();try(BufferedReader br=new BufferedReader(new InputStreamReader(openFileInput(file),StandardCharsets.UTF_8))){String s;while((s=br.readLine())!=null){if(!s.isBlank())all.add(s);}}catch(Exception ignored){}if(all.size()>max)return all.subList(all.size()-max,all.size());return all;}
     private void copy(String h){((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("handle","@"+h));Toast.makeText(this,"Скопировано @"+h,Toast.LENGTH_SHORT).show();}
-    private void copyFile(String file){List<String> l=readLines(file,100000);StringBuilder b=new StringBuilder();for(String h:l)b.append('@').append(h).append('\n');((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("YT3 green",b.toString()));Toast.makeText(this,"Скопировано: "+l.size(),Toast.LENGTH_SHORT).show();}
+    private void copyFile(String file){List<String> l=readLines(file,100000);StringBuilder b=new StringBuilder();for(String h:l)b.append('@').append(h).append('\n');((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("YT3 candidates",b.toString()));Toast.makeText(this,"Скопировано: "+l.size(),Toast.LENGTH_SHORT).show();}
     @Override protected void onDestroy(){super.onDestroy();handler.removeCallbacksAndMessages(null);}
 }
