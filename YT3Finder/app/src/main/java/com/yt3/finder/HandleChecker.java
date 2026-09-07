@@ -30,8 +30,8 @@ public final class HandleChecker {
                low.contains("\"canonicalbaseurl\":\"/@"+h)||
                low.contains("<link rel=\"canonical\" href=\"https://www.youtube.com/@"+h)||
                low.contains("<meta property=\"og:url\" content=\"https://www.youtube.com/@"+h)||
-               low.contains("\"webcommandmetadata\":")&&low.contains("/@"+h)||
-               low.contains("ytinitialdata")&&low.contains("metadata")&&(low.contains("subscriber")||low.contains("videos"));
+               (low.contains("\"webcommandmetadata\":")&&low.contains("/@"+h))||
+               (low.contains("ytinitialdata")&&low.contains("metadata")&&(low.contains("subscriber")||low.contains("videos")));
     }
 
     public static Verdict checkUrl(String url,String handle){
@@ -39,7 +39,7 @@ public final class HandleChecker {
         try{
             c=(HttpURLConnection)new URL(url).openConnection();
             c.setInstanceFollowRedirects(true);
-            c.setConnectTimeout(11000);c.setReadTimeout(15000);
+            c.setConnectTimeout(9000);c.setReadTimeout(12000);
             c.setRequestProperty("User-Agent","Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36");
             c.setRequestProperty("Accept","text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
             c.setRequestProperty("Accept-Language","en-US,en;q=0.9");
@@ -63,6 +63,23 @@ public final class HandleChecker {
         return checkUrl(host+"/@"+enc(handle)+suffix+join+"_yt3="+nonce,handle);
     }
 
+    /**
+     * Fast exact-channel prefilter. It is used only to throw away handles that
+     * YouTube already clearly resolves to a real channel. NOT_FOUND/UNKNOWN are
+     * never treated as free here; they merely proceed to the deep verifier.
+     */
+    public static boolean definitelyOccupiedFast(String handle){
+        long n=System.nanoTime();
+        Verdict[] v=new Verdict[]{
+            checkPath("https://www.youtube.com",handle,"",n),
+            checkPath("https://m.youtube.com",handle,"",n+1),
+            checkPath("https://www.youtube.com",handle,"/about",n+2),
+            checkPath("https://www.youtube.com",handle,"/videos",n+3)
+        };
+        for(Verdict x:v)if(x==Verdict.OCCUPIED)return true;
+        return false;
+    }
+
     private static Verdict[] round(String handle,long nonce){
         return new Verdict[]{
             checkPath("https://www.youtube.com",handle,"",nonce),
@@ -81,8 +98,6 @@ public final class HandleChecker {
     }
 
     public static StrictResult strictCheck(String handle,boolean repeat){
-        // 3 complete rounds x 8 surfaces = 24 consistent absence signals required.
-        // Any occupied or unknown result rejects the candidate.
         int rounds=repeat?3:1;
         for(int r=0;r<rounds;r++){
             int[] s=summarize(round(handle,System.nanoTime()+r*100));
@@ -90,7 +105,6 @@ public final class HandleChecker {
             if(s[2]>0||s[1]<8)return new StrictResult("unknown");
             if(r<rounds-1){try{Thread.sleep(900L+r*350L);}catch(Exception ignored){}}
         }
-        // Public absence is still only a candidate, never guaranteed claimability.
         return new StrictResult("yellow");
     }
 
