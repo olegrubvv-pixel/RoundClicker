@@ -15,12 +15,21 @@ android {
         versionName = "1.0"
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     buildFeatures { buildConfig = true }
 
     packaging {
         jniLibs.useLegacyPackaging = true
         resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
     }
+}
+
+kotlin {
+    jvmToolchain(17)
 }
 
 dependencies {
