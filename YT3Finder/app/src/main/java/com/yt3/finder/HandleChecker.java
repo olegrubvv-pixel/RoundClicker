@@ -17,15 +17,13 @@ public final class HandleChecker {
     }
 
     private static String readAll(InputStream in) throws IOException {
-        BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
-        StringBuilder sb = new StringBuilder();
-        char[] buf = new char[8192];
-        int n, total=0;
-        while((n=br.read(buf))>0 && total < 700000){ sb.append(buf,0,n); total+=n; }
+        BufferedReader br=new BufferedReader(new InputStreamReader(in,StandardCharsets.UTF_8));
+        StringBuilder sb=new StringBuilder(); char[] buf=new char[8192]; int n,total=0;
+        while((n=br.read(buf))>0 && total<900000){sb.append(buf,0,n);total+=n;}
         return sb.toString();
     }
 
-    private static boolean occupiedBody(String low, String handle){
+    private static boolean occupiedBody(String low,String handle){
         String h=handle.toLowerCase();
         return low.contains("\"channelid\":\"uc") ||
                low.contains("\"browseid\":\"uc") ||
@@ -35,80 +33,81 @@ public final class HandleChecker {
                low.contains("\"canonicalbaseurl\":\"/@"+h) ||
                low.contains("<link rel=\"canonical\" href=\"https://www.youtube.com/@"+h) ||
                low.contains("<meta property=\"og:url\" content=\"https://www.youtube.com/@"+h) ||
-               low.contains("ytinitialdata") && (low.contains("subscriber") || low.contains("videos"));
+               (low.contains("ytinitialdata") && low.contains("metadata") && (low.contains("subscriber")||low.contains("videos")));
     }
 
-    public static Verdict checkUrl(String url, String handle){
+    public static Verdict checkUrl(String url,String handle){
         HttpURLConnection c=null;
         try{
             c=(HttpURLConnection)new URL(url).openConnection();
             c.setInstanceFollowRedirects(true);
-            c.setConnectTimeout(9000);
-            c.setReadTimeout(12000);
+            c.setConnectTimeout(10000); c.setReadTimeout(14000);
             c.setRequestProperty("User-Agent","Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36");
             c.setRequestProperty("Accept","text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
             c.setRequestProperty("Accept-Language","en-US,en;q=0.9");
-            c.setRequestProperty("Cache-Control","no-cache");
+            c.setRequestProperty("Cache-Control","no-cache, no-store");
             int code=c.getResponseCode();
-            if(code==403 || code==429 || code>=500) return Verdict.UNKNOWN;
+            if(code==403||code==408||code==429||code>=500)return Verdict.UNKNOWN;
             InputStream in=(code>=400?c.getErrorStream():c.getInputStream());
-            String body=in==null?"":readAll(in);
-            String low=body.toLowerCase();
+            String body=in==null?"":readAll(in), low=body.toLowerCase();
             String finalUrl=c.getURL().toString().toLowerCase();
             String marker="/@"+handle.toLowerCase();
 
-            if(finalUrl.contains("/channel/uc")) return Verdict.OCCUPIED;
-            if(occupiedBody(low,handle)) return Verdict.OCCUPIED;
-            if(code==200 && finalUrl.contains(marker) && body.length()>5000 && low.contains("ytcfg")) return Verdict.OCCUPIED;
+            if(finalUrl.contains("/channel/uc"))return Verdict.OCCUPIED;
+            if(occupiedBody(low,handle))return Verdict.OCCUPIED;
+            if(code==200 && finalUrl.contains(marker) && body.length()>5000 && (low.contains("ytcfg")||low.contains("ytinitialdata")))return Verdict.OCCUPIED;
 
-            // IMPORTANT: 404 is only absence-of-public-page evidence. It is NEVER proof that a handle is claimable.
+            // Never treat 404 as proof of claimability. It is only one absence signal.
             if(code==404 || low.contains("this page isn't available") || low.contains("this page is not available") ||
-               low.contains("page unavailable") || low.contains("channel does not exist")) return Verdict.NOT_FOUND;
-
+               low.contains("page unavailable") || low.contains("channel does not exist"))return Verdict.NOT_FOUND;
             return Verdict.UNKNOWN;
-        }catch(Exception e){ return Verdict.UNKNOWN; }
-        finally{ if(c!=null)c.disconnect(); }
+        }catch(Exception e){return Verdict.UNKNOWN;}
+        finally{if(c!=null)c.disconnect();}
     }
 
-    private static Verdict checkPath(String host, String handle, String suffix){
-        return checkUrl(host+"/@"+enc(handle)+suffix,handle);
-    }
+    private static Verdict checkPath(String host,String handle,String suffix){return checkUrl(host+"/@"+enc(handle)+suffix,handle);}
 
-    public static StrictResult strictCheck(String handle, boolean repeat){
-        Verdict[] v = new Verdict[]{
+    private static Verdict[] round(String handle){
+        return new Verdict[]{
             checkPath("https://www.youtube.com",handle,""),
             checkPath("https://www.youtube.com",handle,"/about"),
+            checkPath("https://www.youtube.com",handle,"/videos"),
+            checkPath("https://www.youtube.com",handle,"/shorts"),
             checkPath("https://m.youtube.com",handle,""),
-            checkPath("https://m.youtube.com",handle,"/videos")
+            checkPath("https://m.youtube.com",handle,"/about")
         };
-        int notFound=0, unknown=0;
-        for(Verdict x:v){
-            if(x==Verdict.OCCUPIED) return new StrictResult("occupied");
-            if(x==Verdict.NOT_FOUND) notFound++; else unknown++;
+    }
+
+    private static int[] summarize(Verdict[] vs){
+        int occupied=0,notFound=0,unknown=0;
+        for(Verdict v:vs){if(v==Verdict.OCCUPIED)occupied++;else if(v==Verdict.NOT_FOUND)notFound++;else unknown++;}
+        return new int[]{occupied,notFound,unknown};
+    }
+
+    public static StrictResult strictCheck(String handle,boolean repeat){
+        // Round 1: six independent public surfaces. ANY occupied signal rejects immediately.
+        int[] a=summarize(round(handle));
+        if(a[0]>0)return new StrictResult("occupied");
+        // For maximum precision, even a single UNKNOWN hides the candidate.
+        if(a[2]>0 || a[1]<6)return new StrictResult("unknown");
+
+        if(repeat){
+            try{Thread.sleep(700);}catch(Exception ignored){}
+            // Round 2 repeats all six after a delay to catch transient YouTube responses/caches.
+            int[] b=summarize(round(handle));
+            if(b[0]>0)return new StrictResult("occupied");
+            if(b[2]>0 || b[1]<6)return new StrictResult("unknown");
         }
 
-        if(repeat && notFound>=3){
-            try{Thread.sleep(350);}catch(Exception ignored){}
-            Verdict again=checkPath("https://www.youtube.com",handle,"/about");
-            if(again==Verdict.OCCUPIED) return new StrictResult("occupied");
-            if(again==Verdict.UNKNOWN) unknown++;
-            else notFound++;
-        }
-
-        // Public checks cannot prove that YouTube will allow assignment, so automatic GREEN is forbidden.
-        // Strong absence evidence is YELLOW; network/ambiguous results are hidden.
-        if(notFound>=3 && unknown<=2) return new StrictResult("yellow");
-        return new StrictResult("unknown");
+        // Still NOT green: public page absence cannot prove YouTube will allow assignment.
+        return new StrictResult("yellow");
     }
 
     public static boolean selfTest(){
-        // These are intentionally short/high-demand occupied handles too, because they exposed the old false-positive bug.
         String[] known={"MrBeast","YouTube","Google","777","aaa","l1l"};
         for(String h:known){
-            Verdict a=checkPath("https://www.youtube.com",h,"");
-            Verdict b=checkPath("https://www.youtube.com",h,"/about");
-            Verdict c=checkPath("https://m.youtube.com",h,"");
-            if(a!=Verdict.OCCUPIED && b!=Verdict.OCCUPIED && c!=Verdict.OCCUPIED) return false;
+            int[] s=summarize(round(h));
+            if(s[0]<1)return false;
         }
         return true;
     }
