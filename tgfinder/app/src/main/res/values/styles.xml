@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.TGFinder" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#229ED9</item>
+        <item name="colorPrimaryVariant">#168AC1</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:navigationBarColor">#F3F8FC</item>
+        <item name="android:statusBarColor">#229ED9</item>
+    </style>
+</resources>
